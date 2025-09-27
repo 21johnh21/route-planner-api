@@ -1,0 +1,16 @@
+# Go build output
+/bin/
+/build/
+/*.exe
+/*.out
+/*.test
+
+# Dependency directories
+/vendor/
+
+# IDE/editor files
+.vscode/
+.idea/
+
+# Environment variables
+.env
