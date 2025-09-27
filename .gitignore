@@ -4,6 +4,7 @@
 /*.exe
 /*.out
 /*.test
+route-planner-api
 
 # Dependency directories
 /vendor/

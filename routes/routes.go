@@ -2,8 +2,9 @@ package routes
 
 import (
 	"log"
-	"route-planner-api/handlers"
 	"time"
+
+	"github.com/21johnh21/route-planner-api/handlers"
 
 	"github.com/gin-gonic/gin"
 )

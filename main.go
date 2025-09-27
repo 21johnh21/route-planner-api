@@ -4,16 +4,19 @@ import (
 	"log"
 	"os"
 
-	"route-planner-api/config"
-	"route-planner-api/routes"
-
+	"github.com/21johnh21/route-planner-api/config"
+	"github.com/21johnh21/route-planner-api/routes"
 	"github.com/gin-gonic/gin"
 )
 
 func main() {
 	// Load DB and configs
 	db := config.InitDB()
-	defer db.Close()
+	sqlDB, err := db.DB() // get underlying *sql.DB
+	if err != nil {
+		log.Fatal("Failed to get sql.DB from GORM:", err)
+	}
+	defer sqlDB.Close()
 
 	r := gin.Default()
 

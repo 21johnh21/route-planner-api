@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"time"
 
-	"route-planner-api/models"
+	"github.com/21johnh21/route-planner-api/models"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
