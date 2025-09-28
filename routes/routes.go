@@ -40,7 +40,6 @@ func SetupRoutes(r *gin.Engine) {
 		}
 
 		tile := api.Group("/tiles")
-		tile.Use(middleware.AuthMiddleware()) // protect tile endpoints
 		{
 			tile.GET("/:z/:x/:y", handlers.GetTile)
 		}
