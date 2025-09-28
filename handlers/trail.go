@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"net/http"
 	"time"
 
@@ -30,8 +31,8 @@ func CreateTrail(c *gin.Context) {
 	userID := c.MustGet("user_id").(float64)
 
 	var input struct {
-		Name    string `json:"name" binding:"required"`
-		GeoJSON string `json:"geojson" binding:"required"`
+		Name    string                 `json:"name" binding:"required"`
+		GeoJSON map[string]interface{} `json:"geojson" binding:"required"`
 	}
 
 	if err := c.ShouldBindJSON(&input); err != nil {
@@ -39,10 +40,16 @@ func CreateTrail(c *gin.Context) {
 		return
 	}
 
+	geojsonBytes, err := json.Marshal(input.GeoJSON)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid GeoJSON format"})
+		return
+	}
+
 	trail := models.Trail{
 		UserID:    uint(userID),
 		Name:      input.Name,
-		GeoJSON:   input.GeoJSON,
+		GeoJSON:   string(geojsonBytes),
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}
