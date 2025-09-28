@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 
+	"github.com/21johnh21/route-planner-api/models"
 	"github.com/joho/godotenv"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -30,6 +31,11 @@ func InitDB() *gorm.DB {
 	})
 	if err != nil {
 		log.Fatal("Failed to connect to database:", err)
+	}
+
+	log.Println("Running database migrations...")
+	if err := db.AutoMigrate(&models.User{}, &models.Trail{}); err != nil {
+		log.Fatal("Failed to run migrations:", err)
 	}
 
 	return db
