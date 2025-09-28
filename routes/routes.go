@@ -16,7 +16,10 @@ func SetupRoutes(r *gin.Engine) {
 		c.Next()
 		latency := time.Since(start)
 		status := c.Writer.Status()
-		log.Printf("[%d] %s %s %s", status, c.Request.Method, c.Request.URL.Path, latency)
+		method := c.Request.Method
+		path := c.Request.URL.Path
+		// Only log summary, truncate query or omit headers/body
+		log.Printf("[%d] %s %s (%s)", status, method, path, latency)
 	})
 
 	api := r.Group("/api")

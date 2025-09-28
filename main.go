@@ -13,6 +13,8 @@ import (
 )
 
 func main() {
+	gin.SetMode(gin.ReleaseMode)
+
 	// Load DB and configs
 	db := config.InitDB()
 	sqlDB, err := db.DB() // get underlying *sql.DB
@@ -21,7 +23,8 @@ func main() {
 	}
 	defer sqlDB.Close()
 
-	r := gin.Default()
+	r := gin.New()
+	r.Use(gin.Recovery())
 	r.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{"http://localhost:5173"},
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
