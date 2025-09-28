@@ -19,6 +19,7 @@ func main() {
 	defer sqlDB.Close()
 
 	r := gin.Default()
+	r.SetTrustedProxies([]string{"127.0.0.1"})
 
 	// Attach DB to context
 	r.Use(func(c *gin.Context) {
