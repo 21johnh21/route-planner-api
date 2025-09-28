@@ -102,15 +102,24 @@ func GetTile(c *gin.Context) {
 	json.Unmarshal(trailBody, &trailData)
 	json.Unmarshal(trailheadBody, &trailheadData)
 
-	trailGeoJSON, _ := json.Marshal(trailData)
-	trailheadGeoJSON, _ := json.Marshal(trailheadData)
+	trailGeoJSONBytes, err := json.Marshal(trailData)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse trail data"})
+		return
+	}
+
+	trailheadGeoJSONBytes, err := json.Marshal(trailheadData)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse trailhead data"})
+		return
+	}
 
 	tile = models.Tile{
 		Zoom:             z,
 		X:                x,
 		Y:                y,
-		TrailGeoJSON:     string(trailGeoJSON),
-		TrailheadGeoJSON: string(trailheadGeoJSON),
+		TrailGeoJSON:     string(trailGeoJSONBytes),
+		TrailheadGeoJSON: string(trailheadGeoJSONBytes),
 		FetchedAt:        time.Now(),
 	}
 
@@ -126,3 +135,56 @@ func GetTile(c *gin.Context) {
 // Helper functions
 func exp(x float64) float64  { return math.Exp(x) }
 func atan(x float64) float64 { return math.Atan(x) }
+
+func convertOverpassToGeoJSON(overpass interface{}) map[string]interface{} {
+	out := map[string]interface{}{
+		"type":     "FeatureCollection",
+		"features": []interface{}{},
+	}
+
+	m, ok := overpass.(map[string]interface{})
+	if !ok {
+		return out
+	}
+
+	elements, ok := m["elements"].([]interface{})
+	if !ok {
+		return out
+	}
+
+	features := []interface{}{}
+	for _, e := range elements {
+		elem, ok := e.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		geomType := ""
+		coords := []interface{}{}
+
+		if elem["type"] == "node" {
+			geomType = "Point"
+			coords = []interface{}{elem["lon"], elem["lat"]}
+		} else if elem["type"] == "way" {
+			geomType = "LineString"
+			if nodes, ok := elem["nodes"].([]interface{}); ok {
+				coords = nodes // ideally resolve node coordinates; for a simple version, just pass IDs
+			}
+		}
+
+		if geomType != "" {
+			feature := map[string]interface{}{
+				"type": "Feature",
+				"geometry": map[string]interface{}{
+					"type":        geomType,
+					"coordinates": coords,
+				},
+				"properties": elem,
+			}
+			features = append(features, feature)
+		}
+	}
+
+	out["features"] = features
+	return out
+}
