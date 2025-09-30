@@ -60,22 +60,21 @@ func GetTile(c *gin.Context) {
 	latN := (180 / math.Pi) * (2*atan(exp(math.Pi*(1-2*float64(y)/float64(n)))) - math.Pi/2)
 	latS := (180 / math.Pi) * (2*atan(exp(math.Pi*(1-2*float64(y+1)/float64(n)))) - math.Pi/2)
 
-	// Overpass queries
+	// Simplified Overpass queries - request less data
 	trailQuery := fmt.Sprintf(`
 		[out:json][timeout:25];
 		(
 			way["highway"~"path|footway|cycleway|pedestrian|track|steps|bridleway"](%f,%f,%f,%f);
 			relation["route"~"hiking|bicycle|foot"](%f,%f,%f,%f);
-			relation["leisure"="park"](%f,%f,%f,%f);
 		);
 		out body; >; out skel qt;
-	`, latS, lonW, latN, lonE, latS, lonW, latN, lonE, latS, lonW, latN, lonE)
+	`, latS, lonW, latN, lonE, latS, lonW, latN, lonE)
 
 	trailheadQuery := fmt.Sprintf(`
 		[out:json][timeout:25];
 		(
-			node["information"="trailhead"]["informal"!="yes"]["parking"!="" ](%f,%f,%f,%f);
-			node["amenity"="parking"]["access"!="private"]["hiking"="yes"](%f,%f,%f,%f);
+			node["information"="trailhead"](%f,%f,%f,%f);
+			node["amenity"="parking"]["hiking"="yes"](%f,%f,%f,%f);
 		);
 		out geom;
 	`, latS, lonW, latN, lonE, latS, lonW, latN, lonE)
@@ -97,18 +96,22 @@ func GetTile(c *gin.Context) {
 	defer trailheadRes.Body.Close()
 	trailheadBody, _ := io.ReadAll(trailheadRes.Body)
 
-	// Convert to JSON strings to store
-	var trailData, trailheadData interface{}
+	// Convert to optimized GeoJSON
+	var trailData, trailheadData map[string]interface{}
 	json.Unmarshal(trailBody, &trailData)
 	json.Unmarshal(trailheadBody, &trailheadData)
 
-	trailGeoJSONBytes, err := json.Marshal(trailData)
+	// Simplify and optimize the data
+	simplifiedTrails := simplifyOverpassData(trailData, z)
+	simplifiedTrailheads := simplifyOverpassData(trailheadData, z)
+
+	trailGeoJSONBytes, err := json.Marshal(simplifiedTrails)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse trail data"})
 		return
 	}
 
-	trailheadGeoJSONBytes, err := json.Marshal(trailheadData)
+	trailheadGeoJSONBytes, err := json.Marshal(simplifiedTrailheads)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse trailhead data"})
 		return
@@ -132,59 +135,113 @@ func GetTile(c *gin.Context) {
 	})
 }
 
-// Helper functions
-func exp(x float64) float64  { return math.Exp(x) }
-func atan(x float64) float64 { return math.Atan(x) }
-
-func convertOverpassToGeoJSON(overpass interface{}) map[string]interface{} {
-	out := map[string]interface{}{
-		"type":     "FeatureCollection",
-		"features": []interface{}{},
+// simplifyOverpassData reduces data size by removing unnecessary fields and simplifying coordinates
+func simplifyOverpassData(data map[string]interface{}, zoom int) map[string]interface{} {
+	if data == nil {
+		return map[string]interface{}{"elements": []interface{}{}}
 	}
 
-	m, ok := overpass.(map[string]interface{})
+	elements, ok := data["elements"].([]interface{})
 	if !ok {
-		return out
+		return data
 	}
 
-	elements, ok := m["elements"].([]interface{})
-	if !ok {
-		return out
-	}
+	// Determine coordinate precision based on zoom level
+	// Higher zoom = more precision needed
+	precision := getPrecisionForZoom(zoom)
 
-	features := []interface{}{}
+	simplified := make([]interface{}, 0, len(elements))
+
 	for _, e := range elements {
 		elem, ok := e.(map[string]interface{})
 		if !ok {
 			continue
 		}
 
-		geomType := ""
-		coords := []interface{}{}
+		// Create a new simplified element with only essential fields
+		newElem := map[string]interface{}{
+			"type": elem["type"],
+			"id":   elem["id"],
+		}
 
-		if elem["type"] == "node" {
-			geomType = "Point"
-			coords = []interface{}{elem["lon"], elem["lat"]}
-		} else if elem["type"] == "way" {
-			geomType = "LineString"
-			if nodes, ok := elem["nodes"].([]interface{}); ok {
-				coords = nodes // ideally resolve node coordinates; for a simple version, just pass IDs
+		// Round coordinates to appropriate precision
+		if lat, ok := elem["lat"].(float64); ok {
+			newElem["lat"] = roundToPrecision(lat, precision)
+		}
+		if lon, ok := elem["lon"].(float64); ok {
+			newElem["lon"] = roundToPrecision(lon, precision)
+		}
+
+		// Keep only essential tags
+		if tags, ok := elem["tags"].(map[string]interface{}); ok {
+			essentialTags := extractEssentialTags(tags)
+			if len(essentialTags) > 0 {
+				newElem["tags"] = essentialTags
 			}
 		}
 
-		if geomType != "" {
-			feature := map[string]interface{}{
-				"type": "Feature",
-				"geometry": map[string]interface{}{
-					"type":        geomType,
-					"coordinates": coords,
-				},
-				"properties": elem,
-			}
-			features = append(features, feature)
+		// Keep node references for ways (but they're already minimal)
+		if nodes, ok := elem["nodes"].([]interface{}); ok {
+			newElem["nodes"] = nodes
+		}
+
+		// Keep members for relations
+		if members, ok := elem["members"].([]interface{}); ok {
+			newElem["members"] = members
+		}
+
+		simplified = append(simplified, newElem)
+	}
+
+	return map[string]interface{}{
+		"version":   data["version"],
+		"generator": data["generator"],
+		"elements":  simplified,
+	}
+}
+
+// getPrecisionForZoom returns decimal places based on zoom level
+func getPrecisionForZoom(zoom int) int {
+	// At zoom 10: ~10m precision (5 decimal places)
+	// At zoom 15: ~1m precision (6 decimal places)
+	// At zoom 18: ~0.1m precision (7 decimal places)
+	if zoom <= 10 {
+		return 4
+	} else if zoom <= 13 {
+		return 5
+	} else if zoom <= 16 {
+		return 6
+	}
+	return 7
+}
+
+// roundToPrecision rounds a float to n decimal places
+func roundToPrecision(val float64, precision int) float64 {
+	multiplier := math.Pow(10, float64(precision))
+	return math.Round(val*multiplier) / multiplier
+}
+
+// extractEssentialTags keeps only important tags for UI display
+func extractEssentialTags(tags map[string]interface{}) map[string]interface{} {
+	essential := map[string]interface{}{}
+
+	// List of tags that are useful for the UI
+	keepTags := []string{
+		"name", "highway", "surface", "access",
+		"route", "information", "amenity", "parking",
+		"hiking", "bicycle", "foot", "difficulty",
+		"description", "leisure",
+	}
+
+	for _, key := range keepTags {
+		if val, exists := tags[key]; exists {
+			essential[key] = val
 		}
 	}
 
-	out["features"] = features
-	return out
+	return essential
 }
+
+// Helper functions
+func exp(x float64) float64  { return math.Exp(x) }
+func atan(x float64) float64 { return math.Atan(x) }
